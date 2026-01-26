@@ -17,5 +17,3 @@ This repository implements sophisticated Reinforcement Learning agents for manag
 - **Non-shiftable Loads**: Must be served immediately (lighting, refrigeration)
 - **Critical Loads**: Must always be served (medical equipment)
 - **Thermal Loads**: HVAC systems with thermal inertia
-
-## 🏗️ Repository Architecture
