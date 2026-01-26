@@ -1,0 +1,2 @@
+MY first RL impplementation for Energy management system.
+in this repository you will find my different RL implementation for EMS, for different algorithms : Q learning , DQN , SAC , MPC with different levels of real world environment modeling going from simple environment model, going to more and more sophisticated models growing even to simulations.
