@@ -1,12 +1,20 @@
-## Reinforcement learning for EMS 
-This repository contains the first implementation of an rl model for EMS :
-    - Algorithms : Q learning, DQN, MPC ,SAC
-    - Environment : customized one based on models
-    - Discrete state and action space for q learning
-    - Continuous space state and discrete action space DQN
-    - Continous space and space action for both the model predictive control and Soft actor critic
+# Reinforcement Learning for Energy Management Systems (EMS)
 
-1h step was deployed.
-repository structure : 
-For each algorithm , you will find a python file containing the environment (customized to the deployed algorithm) along with the agent build up.
-each file can be executed to train the model. adding for that you will find 2 seperate files for sac and DQN inference as these are NN based algorithms , so the model is saved for later inference after training.
+This repository contains implementations of reinforcement learning algorithms applied to Energy Management Systems (EMS). It serves as a modular laboratory for experimenting with RL techniques in energy control and optimization scenarios.
+
+## 🚀 Overview
+
+This project implements multiple reinforcement learning algorithms for EMS applications, featuring customized environments and both discrete/continuous action spaces. The repository is structured to facilitate experimentation, comparison, and deployment of RL agents in energy management contexts.
+
+## 📊 Implemented Algorithms
+
+| Algorithm | State Space | Action Space | Implementation Status |
+|-----------|-------------|--------------|----------------------|
+| **Q-Learning** | Discrete | Discrete | ✅ Complete |
+| **Deep Q-Network (DQN)** | Continuous | Discrete | ✅ Complete |
+| **Model Predictive Control (MPC)** | Continuous | Continuous | ✅ Complete |
+| **Soft Actor-Critic (SAC)** | Continuous | Continuous | ✅ Complete |
+
+**Time Step Configuration:** All implementations use a **1-hour time step** for environment simulation.
+
+## 🏗️ Repository Structure
