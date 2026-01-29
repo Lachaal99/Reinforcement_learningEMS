@@ -62,6 +62,7 @@ class Actor(nn.Module):
         normal = torch.distributions.Normal(mu,std)
         z= normal.rsample()
         action = torch.tanh(z)
+        action = action * torch.tensor([1.0,0.5,0.3],device=device)  # rescale if needed
 
         log_prob = normal.log_prob(z) - torch.log(1-action.pow(2)+ 1e-6)
         log_prob = log_prob.sum(dim=1,keepdim=True)
@@ -107,7 +108,7 @@ class SACAgent:
         # entropy temperature
         self.log_alpha = torch.zeros(1,requires_grad=True,device= device)
         self.alpha_opt = optim.Adam([self.log_alpha], lr= 3e-4)
-        self.target_entropy = -action_dim
+        self.target_entropy = -0.5*action_dim
 
         self.gamma = 0.99
         self.tau = 0.005
@@ -129,7 +130,7 @@ class SACAgent:
     
     
     def load(self,path, load_optimizers=True,inference_only=False):
-        checkpoint = torch.load("SACparameters.pt",map_location=device)
+        checkpoint = torch.load(path,map_location=device)
         self.actor.load_state_dict(checkpoint["actor"])
         if not inference_only:
             self.q1.load_state_dict(checkpoint["critic1"])
@@ -163,14 +164,14 @@ class SACAgent:
             a2 , logp2 = self.actor.sample(s2)
             q1_t = self.q1_target(s2,a2)
             q2_t = self.q2_target(s2,a2)
-            q_target = torch.min(q2_t,q1_t) - self.alpha * logp2
+            q_target = (torch.min(q2_t,q1_t) - self.alpha * logp2).detach()
             y = r + self.gamma*(1-d)*q_target
         
         q1= self.q1(s,a)
         q2= self.q2(s,a)
 
-        q1_loss = nn.MSELoss()(q1,y)
-        q2_loss= nn.MSELoss()(q2,y)
+        q1_loss = nn.SmoothL1Loss()(q1,y)
+        q2_loss= nn.SmoothL1Loss()(q2,y)
 
         self.q1_opt.zero_grad()
         q1_loss.backward()
@@ -194,7 +195,7 @@ class SACAgent:
         self.actor_opt.step()
 
         # alpha update
-        alpha_loss = -(self.log_alpha * (logp + self.target_entropy).detach()).mean()
+        alpha_loss = -(self.log_alpha * (logp.detach() + self.target_entropy)).mean()
 
         self.alpha_opt.zero_grad()
         alpha_loss.backward()
@@ -208,7 +209,7 @@ class SACAgent:
     def alpha(self):
         return self.log_alpha.exp()
     
-    def soft_update(self,net , target_net):
+    def soft_update(self,net, target_net):
         for p , tp in zip(net.parameters(), target_net.parameters()):
             tp.data.copy_(self.tau * p.data + (1-self.tau)*tp.data)
 

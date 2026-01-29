@@ -9,7 +9,7 @@ print("using device :",device)
 env = Env.EnergyEnv()
 state = env.reset()
 agent = SACAgent(9,3)
-episode_num = 2000
+episode_num = 5000
 episode_rewards= []
 episode_prices = []
 
@@ -21,17 +21,20 @@ for episode in range(episode_num):
     state= env.reset()
     done= False
     while not done:
-        state_t = torch.tensor(state, dtype= torch.float32,device=device).unsqueeze(0)
-        with torch.no_grad():
-            action , _ = agent.actor.sample(state_t)
-        action = action.squeeze(0).cpu().numpy()
-
+        if len(agent.buffer)<10000:
+            action = env.sample_random_action()
+        else:
+            state_t = torch.tensor(state, dtype= torch.float32,device=device).unsqueeze(0)
+            with torch.no_grad():
+                action , _ = agent.actor.sample(state_t)
+                action = action.squeeze(0).cpu().numpy()
         next_state, reward, done, _ =env.step(action)
 
 
 
         agent.buffer.push(state, action , reward, next_state,done)
-        agent.update()
+        if len(agent.buffer) > 10000:
+            agent.update()
 
 
         state = next_state
