@@ -57,17 +57,17 @@ class Actor(nn.Module):
         std = torch.exp(log_std)
         return mu , std
     
-    def sample(self,state):
-        mu , std = self(state)
-        normal = torch.distributions.Normal(mu,std)
-        z= normal.rsample()
-        action = torch.tanh(z)
-        action = action * torch.tensor([1.0,0.5,0.3],device=device)  # rescale if needed
-
-        log_prob = normal.log_prob(z) - torch.log(1-action.pow(2)+ 1e-6)
-        log_prob = log_prob.sum(dim=1,keepdim=True)
-
-        return action,log_prob
+    def sample(self, state):
+        mu, std = self(state)
+        normal = torch.distributions.Normal(mu, std)
+        z = normal.rsample()
+        action= torch.tanh(z)  # In [-1, 1]
+    
+         # Compute log_prob for action_raw BEFORE rescaling
+        log_prob = normal.log_prob(z) - torch.log(1 - action.pow(2) + 1e-6)
+        log_prob = log_prob.sum(dim=1, keepdim=True)
+    
+        return action, log_prob
     
 
 # critic class
@@ -108,13 +108,13 @@ class SACAgent:
         # entropy temperature
         self.log_alpha = torch.zeros(1,requires_grad=True,device= device)
         self.alpha_opt = optim.Adam([self.log_alpha], lr= 3e-4)
-        self.target_entropy = -0.5*action_dim
+        self.target_entropy = action_dim
 
         self.gamma = 0.99
         self.tau = 0.005
         self.buffer= ReplayBuffer()
 
-    def save(self):
+    def save(self,path):
             torch.save({
             "actor": self.actor.state_dict(),
             "critic1":self.q1.state_dict(),
@@ -126,7 +126,7 @@ class SACAgent:
             "optimizerCritic1": self.q1_opt.state_dict(),
             "optimizerCritic2": self.q2_opt.state_dict(),
             "optimizerAlpha":self.alpha_opt.state_dict(),
-            },"SACparameters.pt")
+            },path)
     
     
     def load(self,path, load_optimizers=True,inference_only=False):
@@ -164,7 +164,7 @@ class SACAgent:
             a2 , logp2 = self.actor.sample(s2)
             q1_t = self.q1_target(s2,a2)
             q2_t = self.q2_target(s2,a2)
-            q_target = (torch.min(q2_t,q1_t) - self.alpha * logp2).detach()
+            q_target = (torch.min(q2_t,q1_t) - self.alpha * logp2)
             y = r + self.gamma*(1-d)*q_target
         
         q1= self.q1(s,a)
@@ -175,10 +175,14 @@ class SACAgent:
 
         self.q1_opt.zero_grad()
         q1_loss.backward()
+        #gradient clipping
+        torch.nn.utils.clip_grad_norm_(self.q1.parameters(), max_norm=1.0)
         self.q1_opt.step()
 
         self.q2_opt.zero_grad()
         q2_loss.backward()
+        #gradient clipping
+        torch.nn.utils.clip_grad_norm_(self.q2.parameters(), max_norm=1.0)
         self.q2_opt.step()
 
         # Actor update
@@ -192,6 +196,8 @@ class SACAgent:
 
         self.actor_opt.zero_grad()
         actor_loss.backward()
+        # GRADIENT CLIPPING 
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
         self.actor_opt.step()
 
         # alpha update
@@ -213,3 +219,13 @@ class SACAgent:
         for p , tp in zip(net.parameters(), target_net.parameters()):
             tp.data.copy_(self.tau * p.data + (1-self.tau)*tp.data)
 
+    def select_action(self, state, evaluate=False):
+        """Select action for environment interaction."""
+        with torch.no_grad():
+            state_t = torch.FloatTensor(state).unsqueeze(0).to(device)
+            if evaluate:
+                mu, _ = self.actor(state_t)
+                action = torch.tanh(mu)
+            else:
+                action, _ = self.actor.sample(state_t)
+            return action.cpu().numpy()[0]

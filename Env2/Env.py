@@ -45,7 +45,7 @@ class EnergyEnv:
         self.P_bat_max = 5.0
 
         # hvac max(kW)
-        self.P_hvac_max = 6.0 # kw
+        self.P_hvac_max = 10.0 # kw
         self.hvac_COP = 3.0
         self.P_hvac_prev=0.0
 
@@ -80,39 +80,48 @@ class EnergyEnv:
     def step(self,action):
 
             # battery model
-            P_bat = action[1]*self.P_bat_max
-            if P_bat <0 :
-                          self.SOC += self.dt / self.E_bat * (
-                self.eta_c * (-P_bat)
-            )
+            P_bat = action[1] * self.P_bat_max  # Positive = charge, negative = discharge
 
-            else:
-                self.SOC -= self.dt / self.E_bat * (
-                P_bat/self.eta_d
-            )
+            if P_bat > 0:  # Charging
+                delta_E = self.eta_c * P_bat * self.dt
+                self.SOC += delta_E / self.E_bat
+            else:  # Discharging
+                delta_E = abs(P_bat) * self.dt / self.eta_d
+                self.SOC -= delta_E / self.E_bat
 
-            soc_violation = (max(0,self.SOC - 1.0)**2 + max(0,-self.SOC)**2)
             self.SOC = np.clip(self.SOC, 0.0, 1.0)
-            r_soc = -50*soc_violation # charging limit violation
-            r_batteryLife = -0.02*abs(P_bat)*self.dt # battery usage limit violation
+
+
+            soc_low_violation = max(0, 0.05 - self.SOC)  # Penalty if < 5%
+            soc_high_violation = max(0, self.SOC - 0.95)  # Penalty if > 95%
+            r_soc = -5.0 * (soc_low_violation + soc_high_violation)
+            r_batteryLife = -0.1*abs(P_bat)*self.dt # battery usage limit violation
 
             # thermal regulation 
             P_hvac= action[0]*self.P_hvac_max
             T_out = outdoor_temperature(self.hour)
 
             self.T += self.dt / self.C * ((T_out - self.T) / self.R + self.hvac_COP*P_hvac)
-            r_hvac = -0.05*(P_hvac-self.P_hvac_prev)**2 #penality for agressive changes
+            r_hvac = -0.01*(P_hvac-self.P_hvac_prev)**2 #penality for agressive changes
             self.P_hvac_prev= P_hvac 
 
             # Comfort penalty
-
-            if self.T < self.T_min:
-                r_comfort= -20.0*(self.T - self.T_min)**2
-            elif self.T > self.T_max :
-                r_comfort = -20.0*(self.T - self.T_max)**2
-            else : 
-                r_comfort = -2.0 *(self.T -self.T_set)**2
-
+            # Soft boundaries with deadband
+            if self.T < self.T_min - 1.0:
+                # Critical violation (< 20°C)
+                r_comfort = -3.0 * (self.T - (self.T_min - 1.0))**2
+            elif self.T > self.T_max + 1.0:
+                # Critical violation (> 26°C)
+                r_comfort = -3.0 * (self.T - (self.T_max + 1.0))**2
+            elif self.T < self.T_min:
+                # Minor violation (20-21°C) - linear penalty
+                r_comfort = -1.0 * ( self.T_min- self.T)
+            elif self.T > self.T_max:
+                # Minor violation (25-26°C) - linear penalty
+                r_comfort = -1.0 * (self.T - self.T_max)
+            else:
+                # Inside comfort zone [21-25°C] - NO PENALTY
+                r_comfort = 0.0
             # EV charging
             P_EV=0.0
             r_EV=0.0
@@ -122,29 +131,28 @@ class EnergyEnv:
                 self.EV_SOC += self.dt * self.eta_EV * P_EV/self.E_EV_req
                 EV_soc_violation = (max(0,self.EV_SOC - 1)**2 + max(0,-self.EV_SOC)**2)
                 self.EV_SOC = np.clip(self.EV_SOC, 0.0, 1.0)
-                r_EV -= 50.0*EV_soc_violation
+                r_EV -= 5.0*EV_soc_violation
             if abs(self.hour - self.t_dep) < 1e-6:
-                r_EV -= 20.0*(self.EV_SOC - 1.0)**2  # EV departs, SOC reset
+                r_EV -= 5.0*(self.EV_SOC - 1.0)**2  # EV departs, SOC reset
                 self.EV_SOC =np.random.uniform(0.0,0.15)  # next day arrival SOC
 
 
         # Power balance
             P_pv = pv_profile(self.hour) * 3.0
             load = non_shiftable_profile(self.hour)
-            self.P_grid = max(0.0, P_hvac - P_bat + load+ P_EV - P_pv)
+            self.P_grid = max(0.0, abs(P_hvac) + P_bat + load+ P_EV - P_pv)
 
             price = price_profile(self.hour)
-            cost = self.P_grid * price*self.dt
+            cost = self.P_grid *price*self.dt
 
 
             reward = -cost + r_comfort +r_hvac+r_soc + r_batteryLife + r_EV
-   
+            reward= np.clip(reward,-10.0,1.0)
 
             self.hour += self.dt
             done = int(self.hour) == 24
-            if done :
-                reward -= 20.0* (self.SOC - 0.5)**2 # final soc penalty
-            return self.get_state(), reward, done, {}
+            info= {'cost':cost , 'r_comfort':r_comfort,'r_hvac':r_hvac,'r_soc':r_soc,'r_EV':r_EV,'P_hvac': P_hvac,'T':self.T, 'r_batteryLife':r_batteryLife , 'SOC':self.SOC,'P_grid':self.P_grid,'EV_SOC':self.EV_SOC}
+            return self.get_state(), reward, done, info
 
 
     def sample_random_action(self):
